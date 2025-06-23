@@ -39,6 +39,10 @@ class SearchHistory(BaseModel):
     user = ForeignKeyField(User, backref="searches")  # Связь с пользователем
     content_type = CharField()  # Тип поиска (по названию, рейтингу и т.д.)
     query = TextField(null=True)  # Текст запроса (может быть пустым)
+    genre = CharField(null=True)  # Жанр
+    limit = IntegerField(null=True)  # Лимит
+    min_rating = FloatField(null=True)  # мин рейтинг
+    max_rating = FloatField(null=True)  # макс рейтинг
     created_ad = DateTimeField(default=datetime.now)  # Время поиска
 
 # Модель истории найденных фильмов
@@ -68,13 +72,91 @@ class KinopoiskAPI:
         # Заголовки для запросов (с API-ключом)
         self.headers = {"X-API-KEY": self.api_key}
 
-    def search_movie(self, title, limit=5):
-        """Поиск фильмов по названию"""
-        url = f"{self.BASE_URL}movie/search"
-        params = {
-            "limit": limit,  # Лимит результатов (по умолчанию 5)
-            "query": title,  # Поисковый запрос
-        }
+    def search_movie(self, params):
+        """Поиск фильмов"""
+        url = f"{self.BASE_URL}movie"
         # Отправка GET-запроса к API
         response = requests.get(url, headers=self.headers, params=params)
         return response.json()  # Возвращаем ответ в формате JSON
+
+    def search_by_name(self, title, genre=None, limit=5):
+        """Поиск фильма по названию"""
+        params = {
+            "page": 1,  # Пагинация (первая страница)
+            "limit": limit,  # Лимит результатов (по умолчанию 5)
+            "name": title,  # Поисковый запрос
+        }
+        if genre:
+            params["genres.name"] = genre
+        return self.search_movie(params)
+
+    def search_by_rating(self, min_rating, max_rating, genre=None, limit=5):
+        """Поиск по рейтингу"""
+        params = {
+            "page": 1,
+            "limit": limit,
+            "rating.kp": f"{min_rating}-{max_rating}",  # Фильтр по рейтингу (например, "7-9")
+        }
+        if genre:
+            params["genres.name"] = genre
+        return self.search_movie(params)
+
+    def search_by_budget(self, budget_type, genre=None, limit=5):
+        """Поиск по бюджету"""
+        params = {
+            "page": 1,
+            "limit": limit,
+            "sortField": "budget.value",  # Сортировка по бюджету
+            # Сортировка: -1 = по убыванию (высокий бюджет), 1 = по возрастанию (низкий бюджет)
+            "sortType": -1 if budget_type == "high" else 1,
+        }
+        if genre:
+            params["genres.name"] = genre
+        return self.search_movie(params)
+
+
+# # --- ОБРАБОТЧИКИ КОМАНД ---
+# @bot.message_handler(commands=["start"])
+# def send_welcome(message):
+#     """Обработчик команды /start"""
+#     user = message.from_user
+#
+#     # Создаем или получаем пользователя из базы данных
+#     User.get_or_create(
+#         telegram_id=user.id,
+#         default={
+#             "username": user.username,
+#             "full_name": user.full_name,
+#             "created_ad": user.created_ad,
+#         }
+#     )
+#
+#     # Создаем клавиатуру с основными действиями
+#     markup = InlineKeyboardMarkup()
+#     markup.add(InlineKeyboardButton("Поиск фильмов", callback_data="search_movies"))
+#     markup.add(InlineKeyboardButton("История поиска", callback_data="view_history"))
+#
+#     # Отправляем приветственное сообщение
+#     bot.send_message(
+#         message.chat.id,
+#         "Добро пожаловать в бота для поиска фильмов!\n"
+#         "Выберите действие",
+#         reply_markup=markup
+#     )
+#
+# @bot.callback_query_handler(func=lambda call: call.data == "search_movies")
+# def search_movies(call):
+#     """Обработчик кнопки поиска фильмов"""
+#     markup = InlineKeyboardMarkup(row_width=2)
+#     markup.add(
+#         InlineKeyboardButton("По названию", callback_data="by_title"),
+#         InlineKeyboardButton("По рейтингу", callback_data="by_rating"),
+#         InlineKeyboardButton("Низкобюджетные", callback_data="low_budget"),
+#         InlineKeyboardButton("Высокобюджетные", callback_data="high_budget")
+#     )
+#     bot.edit_message_text(
+#         "Выберите тип поиска",
+#         call.message.chat.id,
+#         call.message.message_id,
+#         reply_markup=markup
+#     )
