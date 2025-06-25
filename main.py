@@ -73,21 +73,21 @@ class KinopoiskAPI:
         self.headers = {"X-API-KEY": self.api_key}
 
     def search_movie(self, params):
-        """Поиск фильмов"""
+        """Базовый метод для поиска фильмов"""
         url = f"{self.BASE_URL}movie"
         # Отправка GET-запроса к API
         response = requests.get(url, headers=self.headers, params=params)
         return response.json()  # Возвращаем ответ в формате JSON
 
     def search_by_name(self, title, genre=None, limit=5):
-        """Поиск фильма по названию"""
+        """Поиск по названию с опциональной фильтрацией по жанру"""
         params = {
             "page": 1,  # Пагинация (первая страница)
             "limit": limit,  # Лимит результатов (по умолчанию 5)
             "name": title,  # Поисковый запрос
         }
         if genre:
-            params["genres.name"] = genre
+            params["genres.name"] = genre  # Добавляем фильтр по жанру
         return self.search_movie(params)
 
     def search_by_rating(self, min_rating, max_rating, genre=None, limit=5):
@@ -113,6 +113,45 @@ class KinopoiskAPI:
         if genre:
             params["genres.name"] = genre
         return self.search_movie(params)
+
+# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
+def format_info_movie(movie):
+    """Форматирует информацию о фильме для вывода в тг"""
+    return (
+        f"<b>{movie.get("name", "Без названия")}</b>\n"
+        f"Год: {movie.get("year", "Неизвестно")}\n"
+        f"Рейтинг: {movie.get('rating', {}).get('kp', 'нет')}\n"
+        f"Жанры: {", ".join(g["name"] for g in movie.get("genres", []))}\n"
+        f"Возрастной рейтинг: {movie.get("AgeRating", "Неизвестно")}+\n\n"
+        f"Описание: {movie.get("descriptions", "Описание отсутствует")[:300]}..."
+    )
+
+def get_genres_keyboard():
+    """Добавляет клавиатуру для выбора жанра"""
+    genres = ["боевик", "комедия", "драма", "ужасы", "фантастика", "триллер"]
+    markup = InlineKeyboardMarkup(row_width=2)  # определяет количество кнопок в одной строке клавиатуры
+    # Создаем кнопки для каждого жанра
+    buttons = [InlineKeyboardButton(genre, callback_data=f"genre_{genres}") for genre in genres]
+    markup.add(*buttons)
+    markup.add(InlineKeyboardButton("Пропустить", callback_data="genre_skip"))
+    return markup
+
+def get_limit_keyboard():
+    """Добавляет клавиатуру для выбора количества результатов"""
+    markup = InlineKeyboardMarkup(row_width=5)
+    # Кнопки от 1 до 10
+    buttons = [InlineKeyboardButton(str(i), callback_data=f"limit_{i}") for i in range(1, 11)]
+    markup.add(*buttons)
+    return markup
+
+def get_movie_action_markup(movie_id):
+    """Создает кнопки действий для фильма"""
+    markup = InlineKeyboardMarkup()
+    markup.add(
+        InlineKeyboardButton("Просмотрено", callback_data=f"watched_{movie_id}"),
+        InlineKeyboardButton("Не смотрел", callback_data=f"unwatched_{movie_id}"),
+    )
+    return markup
 
 
 # # --- ОБРАБОТЧИКИ КОМАНД ---
