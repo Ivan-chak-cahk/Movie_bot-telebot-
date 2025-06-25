@@ -29,7 +29,7 @@ class BaseModel(Model):
 
 # Модель пользователя Telegram
 class User(BaseModel):
-    telegram_id = IntegerField(unique=True)  # Уникальный ID пользователя в Telegram
+    user_id = IntegerField(unique=True)  # Уникальный ID пользователя в Telegram
     username = CharField(null=True)  # @username (может отсутствовать)
     full_name = CharField(null=True)  # Полное имя пользователя
     created_ad = DateTimeField(default=datetime.now)  # Дата регистрации
@@ -37,7 +37,7 @@ class User(BaseModel):
 # Модель истории поисковых запросов
 class SearchHistory(BaseModel):
     user = ForeignKeyField(User, backref="searches")  # Связь с пользователем
-    content_type = CharField()  # Тип поиска (по названию, рейтингу и т.д.)
+    search_type = CharField()  # Тип поиска (по названию, рейтингу и т.д.)
     query = TextField(null=True)  # Текст запроса (может быть пустым)
     genre = CharField(null=True)  # Жанр
     limit = IntegerField(null=True)  # Лимит
@@ -114,17 +114,26 @@ class KinopoiskAPI:
             params["genres.name"] = genre
         return self.search_movie(params)
 
-# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
-def format_info_movie(movie):
-    """Форматирует информацию о фильме для вывода в тг"""
-    return (
-        f"<b>{movie.get("name", "Без названия")}</b>\n"
-        f"Год: {movie.get("year", "Неизвестно")}\n"
-        f"Рейтинг: {movie.get('rating', {}).get('kp', 'нет')}\n"
-        f"Жанры: {", ".join(g["name"] for g in movie.get("genres", []))}\n"
-        f"Возрастной рейтинг: {movie.get("AgeRating", "Неизвестно")}+\n\n"
-        f"Описание: {movie.get("descriptions", "Описание отсутствует")[:300]}..."
+# --- КЛАВИАТУРА ---
+def get_main_menu():
+    """Клава главного меню"""
+    markup = InlineKeyboardMarkup()
+    markup.add(
+        InlineKeyboardButton("Поиск фильмов", callback_data="search_movies"),
+        InlineKeyboardButton("История поиска", callback_data="view_history"),
     )
+    return markup
+
+def get_search_keyboard():
+    """Клава для вида поиска"""
+    markup = InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        InlineKeyboardButton("По названию", callback_data="by_title"),
+        InlineKeyboardButton("По рейтингу", callback_data="by_rating"),
+        InlineKeyboardButton("Низкобюджетные", callback_data="low_budget"),
+        InlineKeyboardButton("Высокобюджетные", callback_data="high_budget")
+    )
+    return markup
 
 def get_genres_keyboard():
     """Добавляет клавиатуру для выбора жанра"""
@@ -153,49 +162,38 @@ def get_movie_action_markup(movie_id):
     )
     return markup
 
+# --- ФОРМАТИРОВАНИЕ ---
+def format_info_movie(movie):
+    """Форматирует информацию о фильме для вывода в тг"""
+    return (
+        f"<b>{movie.get("name", "Без названия")}</b>\n"
+        f"Год: {movie.get("year", "Неизвестно")}\n"
+        f"Рейтинг: {movie.get('rating', {}).get('kp', 'нет')}\n"
+        f"Жанры: {", ".join(g["name"] for g in movie.get("genres", []))}\n"
+        f"Возрастной рейтинг: {movie.get("AgeRating", "Неизвестно")}+\n\n"
+        f"Описание: {movie.get("descriptions", "Описание отсутствует")[:300]}..."
+    )
 
-# # --- ОБРАБОТЧИКИ КОМАНД ---
-# @bot.message_handler(commands=["start"])
-# def send_welcome(message):
-#     """Обработчик команды /start"""
-#     user = message.from_user
-#
-#     # Создаем или получаем пользователя из базы данных
-#     User.get_or_create(
-#         telegram_id=user.id,
-#         default={
-#             "username": user.username,
-#             "full_name": user.full_name,
-#             "created_ad": user.created_ad,
-#         }
-#     )
-#
-#     # Создаем клавиатуру с основными действиями
-#     markup = InlineKeyboardMarkup()
-#     markup.add(InlineKeyboardButton("Поиск фильмов", callback_data="search_movies"))
-#     markup.add(InlineKeyboardButton("История поиска", callback_data="view_history"))
-#
-#     # Отправляем приветственное сообщение
-#     bot.send_message(
-#         message.chat.id,
-#         "Добро пожаловать в бота для поиска фильмов!\n"
-#         "Выберите действие",
-#         reply_markup=markup
-#     )
-#
+# --- ОБРАБОТЧИКИ КОМАНД ---
+@bot.message_handler(commands=["start", "help"])
+def send_welcome(message):
+    """Обработчик команды /start"""
+    # Создаем или получаем пользователя из базы данных
+    User.get_or_create(
+        user_id=message.from_user.id,  # получаем если есть
+        defaults={                     # если нет, то создаём
+            'username': message.from_user.username,
+            'full_name': message.from_user.full_name,
+        }
+    )
+    # Отправляем приветственное сообщение
+    bot.send_message(
+        message.chat.id,
+        "Добро пожаловать в бота для поиска фильмов и сериалов!\n"
+        "Я помогу вам найти информацию о них.\n"
+        "Выберите действие",
+        reply_markup=get_main_menu()
+    )
+
+# ПОИСК ПО НАЗВАНИЮ
 # @bot.callback_query_handler(func=lambda call: call.data == "search_movies")
-# def search_movies(call):
-#     """Обработчик кнопки поиска фильмов"""
-#     markup = InlineKeyboardMarkup(row_width=2)
-#     markup.add(
-#         InlineKeyboardButton("По названию", callback_data="by_title"),
-#         InlineKeyboardButton("По рейтингу", callback_data="by_rating"),
-#         InlineKeyboardButton("Низкобюджетные", callback_data="low_budget"),
-#         InlineKeyboardButton("Высокобюджетные", callback_data="high_budget")
-#     )
-#     bot.edit_message_text(
-#         "Выберите тип поиска",
-#         call.message.chat.id,
-#         call.message.message_id,
-#         reply_markup=markup
-#     )
